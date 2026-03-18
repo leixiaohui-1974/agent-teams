@@ -20,6 +20,7 @@ from agent_teams.publishing.agents.specialists import (
 )
 from agent_teams.publishing.review.reviewers import (
     ContentReviewerAgent, StructureReviewerAgent, LanguageReviewerAgent,
+    ReferenceVerifierAgent,
 )
 
 # Coding specialists
@@ -43,6 +44,7 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     "academic_writer": AcademicWriterAgent,
     "wechat_writer": WeChatWriterAgent,
     "tech_doc_writer": TechDocWriterAgent,
+    "reference_verifier": ReferenceVerifierAgent,
     "content_reviewer": ContentReviewerAgent,
     "structure_reviewer": StructureReviewerAgent,
     "language_reviewer": LanguageReviewerAgent,
@@ -86,13 +88,16 @@ class WorkflowEngine:
             agent_name = step["agent"]
             raw_instruction = step["instruction"]
 
-            # Inject previous artifacts into instruction
+            # Substitute {step_N_agentname} placeholders with actual artifact content
             instruction = raw_instruction
-            if context.artifacts:
-                instruction = (
-                    f"{raw_instruction}\n\n"
-                    f"Previous work so far:\n{context.summary()}"
-                )
+            for key, val in context.artifacts.items():
+                placeholder = f"{{{key}}}"
+                if placeholder in instruction:
+                    instruction = instruction.replace(placeholder, str(val))
+
+            # If any unresolved placeholders remain, inject full context summary
+            if context.artifacts and "{step_" in instruction:
+                instruction += f"\n\nPrevious work context:\n{context.summary()}"
 
             if self.on_step_start:
                 await self.on_step_start(i + 1, len(plan), agent_name, raw_instruction)

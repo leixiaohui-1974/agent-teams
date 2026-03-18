@@ -95,37 +95,44 @@ async def _pilot(tasks: list[str], config_path: str | None) -> None:
     print_header("Agent Teams - Pilot Mode")
     console.print(f"[dim]Tasks queued: {len(tasks)}[/dim]\n")
 
+    succeeded, failed = 0, 0
     for i, task in enumerate(tasks):
         console.rule(f"[bold bright_yellow]Task {i+1}/{len(tasks)}[/bold bright_yellow]")
         console.print(f"[dim]{task}[/dim]\n")
 
-        context = TaskContext(original_request=task)
-        coordinator = CoordinatorAgent()
-        plan = await coordinator.plan(context)
+        try:
+            context = TaskContext(original_request=task)
+            coordinator = CoordinatorAgent()
+            plan = await coordinator.plan(context)
 
-        console.print(f"[dim]Type: {context.task_type.value} | Steps: {len(plan.get('plan', []))}[/dim]")
+            console.print(f"[dim]Type: {context.task_type.value} | Steps: {len(plan.get('plan', []))}[/dim]")
 
-        async def on_start(step_num, total, agent_name, instruction):
-            print_step_start(step_num, total, agent_name, instruction)
+            async def on_start(step_num, total, agent_name, instruction):
+                print_step_start(step_num, total, agent_name, instruction)
 
-        async def on_output(step_num, agent_name, result):
-            print_step_output(step_num, agent_name, result)
+            async def on_output(step_num, agent_name, result):
+                print_step_output(step_num, agent_name, result)
 
-        engine = WorkflowEngine(on_step_start=on_start, on_step_output=on_output)
-        await engine.run_plan(context, plan.get("plan", []))
+            engine = WorkflowEngine(on_step_start=on_start, on_step_output=on_output)
+            await engine.run_plan(context, plan.get("plan", []))
 
-        print_final_result(context)
-        path = save_result(context)
-        console.print(f"[dim]Saved to: {path}[/dim]")
+            print_final_result(context)
+            path = save_result(context)
+            console.print(f"[dim]Saved to: {path}[/dim]")
 
-        # Auto commit after each task
-        short = task[:50].replace('"', "'")
-        msg = git.checkpoint(f"task {i+1}: {short}")
-        console.print(f"[bright_cyan]Git:[/bright_cyan] {msg}\n")
+            short = task[:50].replace('"', "'")
+            msg = git.checkpoint(f"task {i+1}: {short}")
+            console.print(f"[bright_cyan]Git:[/bright_cyan] {msg}\n")
+            succeeded += 1
 
-    # Final summary push
+        except Exception as e:
+            console.print(f"[bold red]Task {i+1} failed: {e}[/bold red]\n")
+            failed += 1
+            continue  # keep going with next task
+
     console.print(Panel(
-        Text(f"Pilot complete: {len(tasks)} tasks", style="bold bright_green", justify="center"),
+        Text(f"Pilot complete: {succeeded} succeeded, {failed} failed / {len(tasks)} total",
+             style="bold bright_green", justify="center"),
         style="bright_green",
     ))
 
@@ -261,7 +268,7 @@ async def _write_doc(
 
     # Multi-round review
     console.print()
-    console.rule("[bright_magenta]Review Pipeline (3 passes)[/bright_magenta]")
+    console.rule("[bright_magenta]Review Pipeline (4 passes)[/bright_magenta]")
 
     # Find the main content artifact
     content_key = None
@@ -361,7 +368,7 @@ async def _code_task(
 
     # Code review pipeline
     console.print()
-    console.rule("[bright_magenta]Code Review Pipeline (3 passes)[/bright_magenta]")
+    console.rule("[bright_magenta]Code Review Pipeline (4 passes)[/bright_magenta]")
 
     code_key = None
     for key in reversed(list(context.artifacts.keys())):

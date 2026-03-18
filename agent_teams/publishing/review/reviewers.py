@@ -83,7 +83,7 @@ Output your review as JSON:
 
 class ReferenceVerifierAgent(BaseAgent):
     """Pass 0 (pre-review): Verify all references/citations are real and correct."""
-    name = "content_reviewer"  # uses the same model config (Gemini long-context)
+    name = "reference_verifier"
     role_description = """You are a reference verification specialist. Your ONLY job is to verify citations.
 
 For EACH reference/citation ([@key]) in the document:

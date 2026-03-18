@@ -4,72 +4,82 @@ proxy:
   api_key: "agent-teams-key-2026"
   timeout: 300
 
-# Model preferences per agent role (tried in order; first available wins)
+# Model allocation strategy:
+#   Claude  → code, architecture, academic, structure analysis
+#   GPT     → creative writing, docs, language polish, general tasks
+#   Gemini  → research, long-context review, fact-check, images
+
 agents:
   # -- General --
   coordinator:
-    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gemini-2.5-flash"]
+    models: ["claude-sonnet-4-6", "gpt-5.4", "gemini-2.5-flash"]
     temperature: 0.3
   architect:
-    models: ["claude-opus-4-6", "claude-opus-4-5-20251101", "gemini-3-pro-preview"]
+    models: ["claude-opus-4-6", "claude-opus-4-5-20251101", "gpt-5.4"]
     temperature: 0.4
   writer:
     models: ["gpt-5.4", "gpt-5.3-codex", "claude-sonnet-4-5-20250929"]
     temperature: 0.7
   coder:
-    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gpt-5.4"]
+    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gpt-5.3-codex"]
     temperature: 0.2
   reviewer:
     models: ["gemini-3-pro-preview", "gemini-2.5-pro", "claude-opus-4-6"]
     temperature: 0.3
   researcher:
-    models: ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-2.5-pro"]
+    models: ["gemini-2.5-flash", "gemini-3-flash-preview", "gpt-5.2"]
     temperature: 0.3
 
-  # -- Publishing (writing) specialists --
+  # -- Publishing specialists --
   outline_architect:
-    models: ["claude-opus-4-6", "claude-opus-4-5-20251101", "gemini-3-pro-preview"]
+    models: ["claude-opus-4-6", "gpt-5.4", "gemini-3-pro-preview"]
     temperature: 0.3
-  content_writer:
+  content_writer:                    # GPT首选：创意写作最强
     models: ["gpt-5.4", "gpt-5.3-codex", "claude-sonnet-4-5-20250929"]
     temperature: 0.7
-  academic_writer:
-    models: ["claude-opus-4-6", "claude-sonnet-4-6", "gemini-3-pro-preview"]
+  academic_writer:                   # Claude首选：学术精度
+    models: ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
     temperature: 0.3
-  wechat_writer:
-    models: ["gpt-5.4", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"]
+  wechat_writer:                     # GPT首选：中文创意写作
+    models: ["gpt-5.4", "gpt-5.3-codex", "claude-sonnet-4-6"]
     temperature: 0.8
-  content_reviewer:
+  tech_doc_writer:                   # GPT+Claude混合
+    models: ["gpt-5.4", "claude-sonnet-4-6", "gpt-5.2"]
+    temperature: 0.4
+  reference_verifier:                # Gemini首选：长上下文核查
+    models: ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-3.1-pro-preview"]
+    temperature: 0.1
+  content_reviewer:                  # Gemini首选：长上下文审查
     models: ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-3.1-pro-preview"]
     temperature: 0.2
-  structure_reviewer:
-    models: ["claude-opus-4-6", "gemini-3-pro-preview", "claude-sonnet-4-6"]
+  structure_reviewer:                # Claude首选：结构逻辑
+    models: ["claude-opus-4-6", "gemini-3-pro-preview", "gpt-5.4"]
     temperature: 0.2
-  language_reviewer:
-    models: ["gpt-5.4", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929"]
+  language_reviewer:                 # GPT首选：语言润色
+    models: ["gpt-5.4", "gpt-5.2", "claude-sonnet-4-6"]
     temperature: 0.4
   figure_generator:
     models: ["gemini-2.5-flash", "gemini-3-flash-preview"]
     temperature: 0.8
 
   # -- Coding specialists --
-  system_designer:
-    models: ["claude-opus-4-6", "claude-opus-4-5-20251101"]
+  system_designer:                   # Claude首选：系统架构
+    models: ["claude-opus-4-6", "claude-opus-4-5-20251101", "gpt-5.4"]
     temperature: 0.3
-  senior_coder:
-    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929"]
+  senior_coder:                      # Claude首选：代码生成
+    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gpt-5.3-codex"]
     temperature: 0.2
-  test_engineer:
-    models: ["claude-sonnet-4-6", "gpt-5.4", "gemini-2.5-flash"]
+  test_engineer:                     # Claude+GPT混合
+    models: ["claude-sonnet-4-6", "gpt-5.3-codex", "gpt-5.4"]
     temperature: 0.2
-  code_reviewer:
+  code_reviewer:                     # Gemini首选：长上下文代码审查
     models: ["gemini-3-pro-preview", "claude-opus-4-6", "gemini-2.5-pro"]
     temperature: 0.2
-  devops_engineer:
-    models: ["claude-sonnet-4-6", "gpt-5.4"]
+  devops_engineer:                   # GPT+Claude混合
+    models: ["gpt-5.3-codex", "claude-sonnet-4-6", "gpt-5.4"]
     temperature: 0.2
-  doc_writer:
-    models: ["gpt-5.4", "claude-sonnet-4-6"]
+  doc_writer:                        # GPT首选：文档写作
+    models: ["gpt-5.4", "gpt-5.2", "claude-sonnet-4-6"]
     temperature: 0.5
 
 imagegen:
