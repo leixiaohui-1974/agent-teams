@@ -1,0 +1,21 @@
+[project]
+name = "agent-teams"
+version = "0.1.0"
+description = "Multi-model AI agent teams for collaborative writing, coding, and image generation"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.0",
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "aiofiles>=24.0",
+]
+
+[project.scripts]
+ai = "agent_teams.cli:main"
+agent-teams = "agent_teams.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

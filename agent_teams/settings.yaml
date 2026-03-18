@@ -1,0 +1,36 @@
+# Agent Teams Configuration
+proxy:
+  base_url: "http://127.0.0.1:8317"
+  api_key: "agent-teams-key-2026"
+  timeout: 300
+
+# Model preferences per agent role
+# These are tried in order; first available model wins
+agents:
+  coordinator:
+    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gemini-2.5-flash"]
+    temperature: 0.3
+  architect:
+    models: ["claude-opus-4-6", "claude-opus-4-5-20251101", "gemini-3-pro-preview"]
+    temperature: 0.4
+  writer:
+    models: ["gpt-5.4", "gpt-5.3-codex", "claude-sonnet-4-5-20250929"]
+    temperature: 0.7
+  coder:
+    models: ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "gpt-5.4"]
+    temperature: 0.2
+  reviewer:
+    models: ["gemini-3-pro-preview", "gemini-2.5-pro", "claude-opus-4-6"]
+    temperature: 0.3
+  researcher:
+    models: ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-2.5-pro"]
+    temperature: 0.3
+
+# Nano Banana image generation (via Gemini API through CLIProxyAPI)
+imagegen:
+  model: "gemini-2.5-flash"
+  fallback_models: ["gemini-3-flash-preview", "gemini-2.5-pro"]
+
+output:
+  default_dir: "./output"
+  stream: true
