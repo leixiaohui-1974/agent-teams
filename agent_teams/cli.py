@@ -293,13 +293,20 @@ async def _write_doc(
 
     print_final_result(context)
 
-    # Format conversion
+    # Post-processing: auto-numbering + reference resolution
+    from agent_teams.publishing.content.rich_content import ContentPostProcessor
     from agent_teams.publishing.models import DocumentSpec
+
+    console.print("\n[dim]Post-processing: numbering, references...[/dim]")
+    processor = ContentPostProcessor(lang=lang)
+    final_content = str(context.get_artifact(content_key, ""))
+    final_content = processor.process(final_content)
+    context.add_artifact(content_key, final_content)
+
+    # Format conversion
     doc = DocumentSpec(doc_type=dtype, title=topic, language=lang)
     converter = FormatConverter()
     output_dir = Path.cwd() / "output"
-
-    final_content = str(context.get_artifact(content_key, ""))
     target_formats = [OutputFormat(f) for f in formats] if formats else [OutputFormat.MARKDOWN]
 
     for fmt in target_formats:

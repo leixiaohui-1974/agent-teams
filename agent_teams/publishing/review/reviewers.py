@@ -81,10 +81,34 @@ Output your review as JSON:
 ```"""
 
 
+class ReferenceVerifierAgent(BaseAgent):
+    """Pass 0 (pre-review): Verify all references/citations are real and correct."""
+    name = "content_reviewer"  # uses the same model config (Gemini long-context)
+    role_description = """You are a reference verification specialist. Your ONLY job is to verify citations.
+
+For EACH reference/citation ([@key]) in the document:
+1. Is this a real publication? (Check: title, authors, year, journal all consistent)
+2. Is the citation used correctly? (Does the claim in the text match what the paper actually says?)
+3. Are there fabricated/hallucinated references? (AI models often invent fake papers)
+
+Output as JSON:
+```json
+{
+  "verified_references": [
+    {"key": "cite_key", "status": "verified|suspicious|fabricated", "reason": "why", "correction": "if needed"}
+  ],
+  "summary": "X verified, Y suspicious, Z fabricated"
+}
+```
+
+IMPORTANT: Be especially vigilant about hallucinated references. If you cannot confirm a paper exists, mark it as "suspicious". If the author/title/year combination is clearly wrong, mark it as "fabricated" and suggest removal or replacement with a real reference."""
+
+
 class ReviewPipeline:
-    """Orchestrates 3-pass review with revision loops."""
+    """Orchestrates reference verification + 3-pass review with revision loops."""
 
     PASSES = [
+        ("reference_check", ReferenceVerifierAgent),
         ("content_accuracy", ContentReviewerAgent),
         ("structure_flow", StructureReviewerAgent),
         ("language_polish", LanguageReviewerAgent),
