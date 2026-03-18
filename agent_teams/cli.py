@@ -27,9 +27,9 @@ from agent_teams.integrations.github import AutoGit
 
 
 # -- shared git helper --
-def _get_git(auto_push: bool = True) -> AutoGit:
-    repo_path = str(Path(__file__).resolve().parent.parent)
-    return AutoGit(repo_path=repo_path, repo_name="agent-teams", auto_push=auto_push)
+def _get_git(auto_push: bool = True, auto_init: bool = False) -> AutoGit:
+    """Create AutoGit scoped to user's current working directory."""
+    return AutoGit(cwd=str(Path.cwd()), auto_push=auto_push, auto_init=auto_init)
 
 
 # -- core runners --
@@ -88,7 +88,7 @@ async def _pilot(tasks: list[str], config_path: str | None) -> None:
     """Autonomous pilot mode: run multiple tasks, auto-commit each."""
     load_settings(config_path)
     client = get_client()
-    git = _get_git()
+    git = _get_git(auto_init=True)
     status = git.init()
     console.print(f"[bright_cyan]Git:[/bright_cyan] {status}")
 
