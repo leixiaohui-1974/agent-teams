@@ -13,14 +13,47 @@ from agent_teams.agents.writer import WriterAgent
 from agent_teams.agents.base import BaseAgent
 from agent_teams.core.message import AgentResult, TaskContext
 
+# Publishing specialists
+from agent_teams.publishing.agents.specialists import (
+    OutlineArchitectAgent, ContentWriterAgent, AcademicWriterAgent,
+    WeChatWriterAgent, TechDocWriterAgent,
+)
+from agent_teams.publishing.review.reviewers import (
+    ContentReviewerAgent, StructureReviewerAgent, LanguageReviewerAgent,
+)
+
+# Coding specialists
+from agent_teams.coding.agents.specialists import (
+    SystemDesignerAgent, SeniorCoderAgent, TestEngineerAgent,
+    CodeReviewerAgent, DevOpsEngineerAgent, DocWriterAgent,
+)
+
 
 AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
+    # General
     "architect": ArchitectAgent,
     "writer": WriterAgent,
     "coder": CoderAgent,
     "reviewer": ReviewerAgent,
     "researcher": ResearcherAgent,
     "imagegen": ImageGenAgent,
+    # Publishing
+    "outline_architect": OutlineArchitectAgent,
+    "content_writer": ContentWriterAgent,
+    "academic_writer": AcademicWriterAgent,
+    "wechat_writer": WeChatWriterAgent,
+    "tech_doc_writer": TechDocWriterAgent,
+    "content_reviewer": ContentReviewerAgent,
+    "structure_reviewer": StructureReviewerAgent,
+    "language_reviewer": LanguageReviewerAgent,
+    "figure_generator": ImageGenAgent,
+    # Coding
+    "system_designer": SystemDesignerAgent,
+    "senior_coder": SeniorCoderAgent,
+    "test_engineer": TestEngineerAgent,
+    "code_reviewer": CodeReviewerAgent,
+    "devops_engineer": DevOpsEngineerAgent,
+    "doc_writer": DocWriterAgent,
 }
 
 

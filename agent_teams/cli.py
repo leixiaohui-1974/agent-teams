@@ -214,6 +214,184 @@ from rich.panel import Panel
 from rich.text import Text
 
 
+# -- Publishing runner --
+
+async def _write_doc(
+    doc_type: str, topic: str, formats: list[str],
+    lang: str, config_path: str | None, auto_commit: bool = False,
+) -> None:
+    load_settings(config_path)
+    client = get_client()
+
+    from agent_teams.publishing.models import DocType, OutputFormat
+    from agent_teams.publishing.workflows.all_workflows import WORKFLOWS
+    from agent_teams.publishing.review.reviewers import ReviewPipeline
+    from agent_teams.publishing.formats.converter import FormatConverter
+
+    dtype = DocType(doc_type)
+    print_header(f"Publishing: {dtype.value}")
+    console.print(f"[dim]Topic:[/dim] {topic}")
+    console.print(f"[dim]Formats:[/dim] {', '.join(formats) or 'md'}\n")
+
+    workflow_steps = WORKFLOWS.get(dtype, WORKFLOWS[DocType.ARTICLE])
+    context = TaskContext(original_request=topic)
+
+    # Fill template variables
+    filled_steps = []
+    for step in workflow_steps:
+        inst = step["instruction"]
+        inst = inst.replace("{topic}", topic)
+        inst = inst.replace("{language}", lang)
+        inst = inst.replace("{audience}", "general")
+        inst = inst.replace("{stack}", "")
+        inst = inst.replace("{context}", "")
+        inst = inst.replace("{book_context}", topic)
+        inst = inst.replace("{chapter_number}", "1")
+        filled_steps.append({"agent": step["agent"], "instruction": inst})
+
+    # Run workflow
+    async def on_start(step_num, total, agent_name, instruction):
+        print_step_start(step_num, total, agent_name, instruction)
+
+    async def on_output(step_num, agent_name, result):
+        print_step_output(step_num, agent_name, result)
+
+    engine = WorkflowEngine(on_step_start=on_start, on_step_output=on_output)
+    await engine.run_plan(context, filled_steps)
+
+    # Multi-round review
+    console.print()
+    console.rule("[bright_magenta]Review Pipeline (3 passes)[/bright_magenta]")
+
+    # Find the main content artifact
+    content_key = None
+    for key in reversed(list(context.artifacts.keys())):
+        if any(w in key for w in ["writer", "content", "wechat", "academic", "tech_doc"]):
+            content_key = key
+            break
+    if not content_key:
+        content_key = list(context.artifacts.keys())[-1]
+
+    # Pick the appropriate writer for revisions
+    writer_map = {
+        DocType.WECHAT: "wechat_writer",
+        DocType.PAPER: "academic_writer",
+        DocType.TECH_DOC: "tech_doc_writer",
+    }
+    writer_name = writer_map.get(dtype, "content_writer")
+    writer_agent = engine._get_agent(writer_name)
+
+    async def on_review(pass_name, iteration, result):
+        console.print(f"\n[bright_magenta]Review: {pass_name} (iter {iteration})[/bright_magenta]")
+        print_step_output(0, result.agent_name, result)
+
+    async def on_revision(pass_name, iteration, result):
+        console.print(f"[bright_green]Revision: {pass_name} (iter {iteration})[/bright_green]")
+
+    pipeline = ReviewPipeline(max_iterations=2, on_review=on_review, on_revision=on_revision)
+    await pipeline.run(context, content_key, writer_agent)
+
+    print_final_result(context)
+
+    # Format conversion
+    from agent_teams.publishing.models import DocumentSpec
+    doc = DocumentSpec(doc_type=dtype, title=topic, language=lang)
+    converter = FormatConverter()
+    output_dir = Path.cwd() / "output"
+
+    final_content = str(context.get_artifact(content_key, ""))
+    target_formats = [OutputFormat(f) for f in formats] if formats else [OutputFormat.MARKDOWN]
+
+    for fmt in target_formats:
+        path = converter.convert(final_content, doc, fmt, output_dir)
+        console.print(f"[bright_green]Output:[/bright_green] {path}")
+
+    if auto_commit:
+        git = _get_git()
+        git.init()
+        msg = git.checkpoint(f"write {doc_type}: {topic[:40]}")
+        console.print(f"[bright_cyan]Git:[/bright_cyan] {msg}")
+
+    await client.close()
+
+
+# -- Coding runner --
+
+async def _code_task(
+    workflow_type: str, topic: str, stack: str,
+    config_path: str | None, auto_commit: bool = False,
+) -> None:
+    load_settings(config_path)
+    client = get_client()
+
+    from agent_teams.coding.workflows.all_workflows import CODING_WORKFLOWS
+    from agent_teams.coding.review.code_review import CodeReviewPipeline
+
+    print_header(f"Coding: {workflow_type}")
+    console.print(f"[dim]Task:[/dim] {topic}")
+    console.print(f"[dim]Stack:[/dim] {stack or 'auto'}\n")
+
+    workflow_steps = CODING_WORKFLOWS.get(workflow_type, CODING_WORKFLOWS["project"])
+    context = TaskContext(original_request=topic)
+
+    # Fill template variables
+    filled_steps = []
+    for step in workflow_steps:
+        inst = step["instruction"]
+        inst = inst.replace("{topic}", topic)
+        inst = inst.replace("{stack}", stack or "best practices for the task")
+        inst = inst.replace("{context}", "")
+        filled_steps.append({"agent": step["agent"], "instruction": inst})
+
+    async def on_start(step_num, total, agent_name, instruction):
+        print_step_start(step_num, total, agent_name, instruction)
+
+    async def on_output(step_num, agent_name, result):
+        print_step_output(step_num, agent_name, result)
+
+    engine = WorkflowEngine(on_step_start=on_start, on_step_output=on_output)
+    await engine.run_plan(context, filled_steps)
+
+    # Code review pipeline
+    console.print()
+    console.rule("[bright_magenta]Code Review Pipeline (3 passes)[/bright_magenta]")
+
+    code_key = None
+    for key in reversed(list(context.artifacts.keys())):
+        if any(w in key for w in ["coder", "senior"]):
+            code_key = key
+            break
+    if not code_key:
+        code_key = list(context.artifacts.keys())[-1]
+
+    reviewer = engine._get_agent("code_reviewer")
+    coder = engine._get_agent("senior_coder")
+
+    async def on_review(pass_name, iteration, result):
+        console.print(f"\n[bright_magenta]Review: {pass_name} (iter {iteration})[/bright_magenta]")
+        print_step_output(0, result.agent_name, result)
+
+    async def on_fix(pass_name, iteration, result):
+        console.print(f"[bright_green]Fix: {pass_name} (iter {iteration})[/bright_green]")
+
+    review_pipeline = CodeReviewPipeline(
+        reviewer, coder, max_iterations=2, on_review=on_review, on_fix=on_fix,
+    )
+    await review_pipeline.run(context, code_key)
+
+    print_final_result(context)
+    path = save_result(context)
+    console.print(f"\n[dim]Saved to:[/dim] {path}")
+
+    if auto_commit:
+        git = _get_git()
+        git.init()
+        msg = git.checkpoint(f"code {workflow_type}: {topic[:40]}")
+        console.print(f"[bright_cyan]Git:[/bright_cyan] {msg}")
+
+    await client.close()
+
+
 # -- CLI --
 
 class DefaultGroup(click.Group):
@@ -231,12 +409,16 @@ class DefaultGroup(click.Group):
 def main(ctx, config):
     """ai - Multi-model Agent Teams.\n
     \b
-    ai 写一篇关于AI的博客          Run a task
-    ai -g img 赛博朋克城市         Generate image
-    ai chat                         Interactive mode
-    ai chat --git                   Interactive + auto git
-    ai pilot "task1" "task2"        Autonomous batch mode
-    ai models                       List models"""
+    ai 任务描述                         Quick task
+    ai write article 量子计算入门       Publication-grade writing
+    ai write wechat AI改变教育          WeChat article
+    ai write paper Transformer综述      Academic paper
+    ai code project 用Go写HTTP框架      Full project
+    ai code api 用户认证REST API        API development
+    ai code bugfix 修复内存泄漏         Bug fixing
+    ai img 赛博朋克城市                 Image generation
+    ai chat --git                       Interactive + auto git
+    ai pilot "task1" "task2"            Autonomous batch"""
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
     if ctx.invoked_subcommand is None:
@@ -283,6 +465,44 @@ def models(ctx):
 def img(ctx, description, o):
     """Generate image via Nano Banana."""
     asyncio.run(_gen_image(" ".join(description), o, ctx.obj["config"]))
+
+
+@main.command()
+@click.argument("doc_type", type=click.Choice(["article", "wechat", "paper", "book", "tech_doc", "report"]))
+@click.argument("topic", nargs=-1, required=True)
+@click.option("-f", "--fmt", multiple=True, type=click.Choice(["md", "latex", "html", "pdf"]),
+              help="Output formats (repeatable)")
+@click.option("--lang", default="zh-CN", help="Language (default: zh-CN)")
+@click.option("--git", is_flag=True, help="Auto commit+push")
+@click.pass_context
+def write(ctx, doc_type, topic, fmt, lang, git):
+    """Publication-grade writing with 3-pass review.
+
+    \b
+    ai write article 量子计算入门 -f md -f pdf
+    ai write wechat AI如何改变教育 -f html
+    ai write paper Transformer架构综述 -f latex -f pdf
+    ai write book Python深度学习 -f md
+    ai write report Q1销售分析 -f pdf"""
+    asyncio.run(_write_doc(doc_type, " ".join(topic), list(fmt), lang, ctx.obj["config"], git))
+
+
+@main.command()
+@click.argument("workflow", type=click.Choice(["project", "feature", "bugfix", "refactor", "api"]))
+@click.argument("topic", nargs=-1, required=True)
+@click.option("--stack", default="", help="Tech stack (e.g. 'Python FastAPI PostgreSQL')")
+@click.option("--git", is_flag=True, help="Auto commit+push")
+@click.pass_context
+def code(ctx, workflow, topic, stack, git):
+    """Professional coding with 3-pass code review.
+
+    \b
+    ai code project 用Go写一个HTTP框架 --stack "Go chi PostgreSQL"
+    ai code api 用户认证系统 --stack "Python FastAPI"
+    ai code feature 添加WebSocket支持
+    ai code bugfix 修复数据库连接池泄漏
+    ai code refactor 重构用户模块"""
+    asyncio.run(_code_task(workflow, " ".join(topic), stack, ctx.obj["config"], git))
 
 
 if __name__ == "__main__":
