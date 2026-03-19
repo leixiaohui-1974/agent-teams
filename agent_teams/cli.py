@@ -198,8 +198,26 @@ async def _list_models(config_path: str | None) -> None:
     if models:
         print_models(models)
     else:
-        print_error("Could not fetch models. Is CLIProxyAPI running?")
+        print_error("Could not fetch models from the configured routes.")
     await client.close()
+
+
+def _show_routes(config_path: str | None) -> None:
+    settings = load_settings(config_path)
+    print_header("Agent Teams - Routes")
+    console.print(f"[bright_yellow]Backend:[/bright_yellow] {settings.execution.backend}")
+    console.print(f"[bright_yellow]Default route:[/bright_yellow] {settings.execution.default_route}")
+    console.print(f"[bright_yellow]Fallback routes:[/bright_yellow] {', '.join(settings.execution.fallback_routes) or 'none'}")
+    console.print(f"[bright_yellow]Parallel:[/bright_yellow] {'on' if settings.execution.parallel else 'off'}")
+    console.print(f"[bright_yellow]Max parallel:[/bright_yellow] {settings.execution.max_parallel}\n")
+    for route_name in settings.get_route_sequence():
+        route = settings.resolve_route(route_name)
+        status = "configured" if route.base_url and route.api_key else "missing"
+        console.print(
+            f"[bright_cyan]{route_name}[/bright_cyan] "
+            f"[dim]{route.base_url or '<no-url>'}[/dim] "
+            f"[{'bright_green' if status == 'configured' else 'red'}]{status}[/]"
+        )
 
 
 async def _gen_image(desc: str, output: str | None, config_path: str | None) -> None:
@@ -470,6 +488,13 @@ def pilot(ctx, tasks):
 def models(ctx):
     """List available models."""
     asyncio.run(_list_models(ctx.obj["config"]))
+
+
+@main.command()
+@click.pass_context
+def routes(ctx):
+    """Show active route policy and configured endpoints."""
+    _show_routes(ctx.obj["config"])
 
 
 @main.command()

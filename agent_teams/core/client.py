@@ -1,4 +1,4 @@
-"""Async HTTP client for CLIProxyAPI (OpenAI-compatible)."""
+"""Async HTTP client with route fallback for OpenAI-compatible gateways."""
 from __future__ import annotations
 
 import asyncio
@@ -17,44 +17,68 @@ if "127.0.0.1" not in os.environ.get("NO_PROXY", ""):
 
 
 class LLMClient:
-    """OpenAI-compatible async client that talks to CLIProxyAPI."""
+    """OpenAI-compatible async client with automatic route fallback."""
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int | None = None):
         settings = get_settings()
         self.base_url = (base_url or settings.proxy.base_url).rstrip("/")
         self.api_key = api_key or settings.proxy.api_key
         self.timeout = timeout or settings.proxy.timeout
-        self._client: httpx.AsyncClient | None = None
+        self._clients: dict[str, httpx.AsyncClient] = {}
         self._available_models: list[str] | None = None
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.base_url,
+    def _route_candidates(self) -> list[tuple[str, str, str, int]]:
+        settings = get_settings()
+        candidates: list[tuple[str, str, str, int]] = []
+        for route_name in settings.get_route_sequence():
+            route = settings.resolve_route(route_name)
+            if route.base_url and route.api_key:
+                candidates.append((route_name, route.base_url.rstrip("/"), route.api_key, route.timeout or self.timeout))
+        if not candidates:
+            candidates.append(("subscription", self.base_url, self.api_key, self.timeout))
+        return candidates
+
+    async def _get_client(self, route_name: str, base_url: str, api_key: str, timeout: int) -> httpx.AsyncClient:
+        client = self._clients.get(route_name)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(
+                base_url=base_url,
                 headers={
-                    "Authorization": f"Bearer {self.api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=httpx.Timeout(self.timeout, connect=10),
+                timeout=httpx.Timeout(timeout, connect=10),
             )
-        return self._client
+            self._clients[route_name] = client
+        return client
+
+    @staticmethod
+    def _should_retry(exc: Exception) -> bool:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in (429, 500, 502, 503, 504)
+        return isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError))
 
     async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        for client in self._clients.values():
+            if not client.is_closed:
+                await client.aclose()
+        self._clients.clear()
 
     async def list_models(self) -> list[str]:
-        """Fetch available models from CLIProxyAPI."""
+        """Fetch available models from the first healthy route."""
         if self._available_models is not None:
             return self._available_models
-        client = await self._get_client()
-        try:
-            resp = await client.get("/v1/models")
-            resp.raise_for_status()
-            data = resp.json()
-            self._available_models = [m["id"] for m in data.get("data", [])]
-        except Exception:
-            self._available_models = []
+        for route_name, base_url, api_key, timeout in self._route_candidates():
+            client = await self._get_client(route_name, base_url, api_key, timeout)
+            try:
+                resp = await client.get("/v1/models")
+                resp.raise_for_status()
+                data = resp.json()
+                self._available_models = [m["id"] for m in data.get("data", [])]
+                return self._available_models
+            except Exception:
+                continue
+        self._available_models = []
         return self._available_models
 
     async def pick_model(self, preferences: list[str]) -> str:
@@ -79,8 +103,7 @@ class LLMClient:
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Non-streaming chat completion."""
-        client = await self._get_client()
+        """Non-streaming chat completion with route fallback."""
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -91,15 +114,28 @@ class LLMClient:
             payload["max_tokens"] = max_tokens
         payload.update(kwargs)
 
-        for attempt in range(4):
-            resp = await client.post("/v1/chat/completions", json=payload)
-            if resp.status_code == 429:
-                wait = min(2 ** attempt * 5, 60)  # 5s, 10s, 20s, 60s
-                await asyncio.sleep(wait)
-                continue
-            resp.raise_for_status()
-            return resp.json()
-        resp.raise_for_status()  # raise on final failure
+        last_error: Exception | None = None
+        for route_name, base_url, api_key, timeout in self._route_candidates():
+            client = await self._get_client(route_name, base_url, api_key, timeout)
+            for attempt in range(4):
+                try:
+                    resp = await client.post("/v1/chat/completions", json=payload)
+                    if resp.status_code == 429:
+                        wait = min(2 ** attempt * 5, 60)
+                        await asyncio.sleep(wait)
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                    data["_route"] = route_name
+                    return data
+                except Exception as exc:
+                    last_error = exc
+                    if self._should_retry(exc) and attempt < 3:
+                        await asyncio.sleep(min(2 ** attempt * 5, 60))
+                        continue
+                    break
+        if last_error:
+            raise last_error
         return {}
 
     async def chat_stream(
@@ -111,7 +147,6 @@ class LLMClient:
         **kwargs: Any,
     ) -> AsyncIterator[str]:
         """Streaming chat completion, yields content deltas."""
-        client = await self._get_client()
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -122,34 +157,39 @@ class LLMClient:
             payload["max_tokens"] = max_tokens
         payload.update(kwargs)
 
-        for attempt in range(4):
-            try:
-                async with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
-                    if resp.status_code == 429:
-                        await resp.aread()
-                        wait = min(2 ** attempt * 5, 60)
-                        await asyncio.sleep(wait)
+        last_error: Exception | None = None
+        for route_name, base_url, api_key, timeout in self._route_candidates():
+            client = await self._get_client(route_name, base_url, api_key, timeout)
+            for attempt in range(4):
+                try:
+                    async with client.stream("POST", "/v1/chat/completions", json=payload) as resp:
+                        if resp.status_code == 429:
+                            await resp.aread()
+                            await asyncio.sleep(min(2 ** attempt * 5, 60))
+                            continue
+                        resp.raise_for_status()
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                if content := delta.get("content"):
+                                    yield content
+                            except (json.JSONDecodeError, IndexError, KeyError):
+                                continue
+                        return
+                except Exception as exc:
+                    last_error = exc
+                    if self._should_retry(exc) and attempt < 3:
+                        await asyncio.sleep(min(2 ** attempt * 5, 60))
                         continue
-                    resp.raise_for_status()
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            if content := delta.get("content"):
-                                yield content
-                        except (json.JSONDecodeError, IndexError, KeyError):
-                            continue
-                    return  # success, exit retry loop
-            except httpx.HTTPStatusError:
-                if attempt < 3:
-                    await asyncio.sleep(min(2 ** attempt * 5, 60))
-                else:
-                    raise
+                    break
+        if last_error:
+            raise last_error
 
     async def generate_image_via_gemini(
         self,
@@ -161,22 +201,8 @@ class LLMClient:
         Uses the Gemini model's native image generation capability.
         The response may contain inline image data.
         """
-        client = await self._get_client()
-        messages = [
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ]
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.8,
-            "stream": False,
-        }
-        resp = await client.post("/v1/chat/completions", json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        messages = [{"role": "user", "content": prompt}]
+        return await self.chat(messages=messages, model=model, temperature=0.8)
 
 
 # Singleton

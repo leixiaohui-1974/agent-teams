@@ -4,6 +4,30 @@ proxy:
   api_key: "agent-teams-key-2026"
   timeout: 300
 
+execution:
+  backend: "api"
+  default_route: "cliproxyapi"
+  fallback_routes: []
+  parallel: true
+  max_parallel: 6
+
+routes:
+  # Unified entry. In your environment this route can internally dispatch to
+  # subscription and aicode upstreams, so the repository only treats it as one
+  # primary channel.
+  cliproxyapi:
+    base_url: "http://127.0.0.1:8317"
+    api_key: "agent-teams-key-2026"
+    timeout: 300
+  subscription:
+    base_url: ""
+    api_key: ""
+    timeout: 300
+  aicode:
+    base_url: ""
+    api_key: ""
+    timeout: 300
+
 # Model allocation strategy:
 #   Claude  → code, architecture, academic, structure analysis
 #   GPT     → creative writing, docs, language polish, general tasks

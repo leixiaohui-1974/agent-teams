@@ -76,6 +76,7 @@ class BaseAgent(ABC):
                     temperature=self.get_temperature(),
                 )
                 content = resp["choices"][0]["message"]["content"]
+                route_used = resp.get("_route", "")
 
                 context.agent_log.append(AgentAction(
                     agent_name=self.name,
@@ -84,7 +85,12 @@ class BaseAgent(ABC):
                     input_summary=instruction[:200],
                     output_summary=content[:200],
                 ))
-                return AgentResult(agent_name=self.name, content=content, model_used=model)
+                return AgentResult(
+                    agent_name=self.name,
+                    content=content,
+                    model_used=model,
+                    metadata={"route": route_used} if route_used else {},
+                )
 
             except httpx.HTTPStatusError as e:
                 last_error = e
