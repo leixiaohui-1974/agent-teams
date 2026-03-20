@@ -7,3 +7,6 @@ build/
 *.egg
 .env
 output/images/
+output/*.md
+output/mycodex_4phase/
+output/mycodex_4phase_test_and_verification/
