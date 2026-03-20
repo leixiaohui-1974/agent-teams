@@ -23,8 +23,8 @@ class RouteConfig(BaseModel):
 
 class ExecutionConfig(BaseModel):
     backend: str = "api"
-    default_route: str = "subscription"
-    fallback_routes: list[str] = ["aicode", "cliproxyapi"]
+    default_route: str = "cliproxyapi"
+    fallback_routes: list[str] = []
     parallel: bool = True
     max_parallel: int = 6
 
@@ -65,7 +65,7 @@ class Settings(BaseModel):
             if route and route not in names:
                 names.append(route)
         if not names:
-            names.append("subscription")
+            names.append("cliproxyapi")
         return names
 
     def resolve_route(self, route_name: str) -> RouteConfig:
